@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ctx-llm // Web-Based LLM Context Builder</title>
+    <style>
+        :root {
+            --bg-color: #121214;
+            --panel-bg: #1a1a1e;
+            --border-color: #2a2a30;
+            --text-color: #e1e1e6;
+            --accent-color: #4ade80;
+            --accent-hover: #22c55e;
+            --warn-bg: #2a1a1a;
+            --warn-border: #ef4444;
+            --warn-text: #fca5a5;
+        }
+
+        body {
+            font-family: monospace;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            box-sizing: border-box;
+        }
+
+        header {
+            margin-bottom: 15px;
+        }
+
+        h1 {
+            margin: 0 0 5px 0;
+            font-size: 1.5rem;
+            color: var(--accent-color);
+        }
+
+        /* Compatibility Banner Styles */
+        .compatibility-banner {
+            display: none;
+            background: var(--warn-bg);
+            border: 1px solid var(--warn-border);
+            color: var(--warn-text);
+            padding: 12px 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+
+        .compatibility-banner ul {
+            margin: 5px 0 0 0;
+            padding-left: 20px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            background: var(--panel-bg);
+            padding: 15px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+        }
+
+        label {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            font-size: 0.85rem;
+        }
+
+        input[type="text"] {
+            background: var(--bg-color);
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            width: 250px;
+        }
+
+        button {
+            background: var(--accent-color);
+            color: var(--bg-color);
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-weight: bold;
+            cursor: pointer;
+            font-family: monospace;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: var(--accent-hover);
+        }
+
+        button:disabled {
+            background: #333;
+            color: #666;
+            cursor: not-allowed;
+        }
+
+        .secondary-btn {
+            background: transparent;
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+        }
+        .secondary-btn:hover {
+            background: var(--border-color);
+        }
+
+        .output-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            margin-top: 20px;
+            min-height: 0;
+        }
+
+        .output-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+            font-size: 0.9rem;
+        }
+
+        textarea {
+            flex: 1;
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            padding: 15px;
+            border-radius: 4px;
+            resize: none;
+            font-family: monospace;
+            font-size: 0.9rem;
+            line-height: 1.4;
+            outline: none;
+        }
+
+        textarea:focus {
+            border-color: var(--accent-color);
+        }
+
+        #status {
+            font-size: 0.85rem;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>ctx // Web Context Extractor</h1>
+        <div id="status">System initialized. awaiting directory targeting...</div>
+    </header>
+
+    <!-- Active Warning Banner -->
+    <div id="compat-banner" class="compatibility-banner">
+        <strong>⚠️ ENVIRONMENT CONFLICT DETECTED:</strong>
+        <span id="compat-message">The File System Access API is unavailable in this context.</span>
+        <ul>
+            <li><strong>Browser Requirements:</strong> Use a Chromium engine (Chrome, Edge, Brave, Opera). Firefox and Safari are explicitly un-supported.</li>
+            <li><strong>Protocol Requirements:</strong> Security rules block directory reading from local files. Run via localhost (e.g., <code>python3 -m http.server</code>).</li>
+        </ul>
+    </div>
+
+    <div class="controls">
+        <button id="select-dir-btn">Select Directory</button>
+        
+        <label>
+            Target Extensions (space separated)
+            <input type="text" id="extensions-input" value="gd rs lua cs toml json" placeholder="e.g. gd rs lua">
+        </label>
+
+        <div style="margin-left: auto; display: flex; gap: 10px;">
+            <button id="copy-btn" class="secondary-btn" disabled>Copy to Clipboard</button>
+            <button id="download-btn" class="secondary-btn" disabled>Download context.txt</button>
+        </div>
+    </div>
+
+    <div class="output-container">
+        <div class="output-header">
+            <span>Generated Output:</span>
+            <span id="stats">Files: 0 // Size: 0 KB</span>
+        </div>
+        <textarea id="output-text" readonly placeholder="Output streams here..."></textarea>
+    </div>
+
+    <script>
+        // Language Mapping Layer
+        function getLanguageName(ext) {
+            const mapping = {
+                'rs': 'rust', 'gd': 'godotscript', 'lua': 'lua', 'cs': 'csharp', 'py': 'python',
+                'js': 'javascript', 'ts': 'typescript', 'cpp': 'cpp', 'cc': 'cpp', 'cxx': 'cpp',
+                'hpp': 'cpp', 'h': 'cpp', 'c': 'c', 'go': 'go', 'rb': 'ruby', 'fs': 'fsharp',
+                'fsi': 'fsharp', 'fsx': 'fsharp', 'java': 'java', 'kt': 'kotlin', 'swift': 'swift',
+                'tscn': 'godot-data', 'tres': 'godot-data', 'godot': 'godot-data', 'gdshader': 'godot-shader',
+                'unity': 'unity-data', 'prefab': 'unity-data', 'meta': 'unity-data', 'mat': 'unity-data',
+                'uproject': 'unreal-data', 'uasset': 'unreal-data', 'umap': 'unreal-data',
+                'glsl': 'glsl', 'vert': 'glsl', 'frag': 'glsl', 'comp': 'glsl', 'geom': 'glsl',
+                'hlsl': 'hlsl', 'fx': 'hlsl', 'hlsli': 'hlsl', 'wgsl': 'wgsl',
+                'makefile': 'makefile', 'make': 'makefile', 'mk': 'makefile',
+                'dockerfile': 'dockerfile', 'dockerignore': 'dockerfile', 'env': 'dotenv',
+                'lock': 'lockfile', 'cmake': 'cmake', 'sh': 'shell', 'bash': 'shell',
+                'ps1': 'powershell', 'psm1': 'powershell', 'psd1': 'powershell', 'bat': 'batch', 'cmd': 'batch',
+                'toml': 'toml', 'json': 'json', 'yaml': 'yaml', 'yml': 'yaml', 'xml': 'xml',
+                'csproj': 'xml', 'fsproj': 'xml', 'ini': 'ini', 'cfg': 'ini', 'prefs': 'ini',
+                'csv': 'csv', 'md': 'markdown', 'markdown': 'markdown', 'txt': 'text',
+                'html': 'html', 'htm': 'html', 'css': 'css', 'sql': 'sql'
+            };
+            return mapping[ext.toLowerCase()] || 'text';
+        }
+
+        const selectDirBtn = document.getElementById('select-dir-btn');
+        const extensionsInput = document.getElementById('extensions-input');
+        const outputText = document.getElementById('output-text');
+        const copyBtn = document.getElementById('copy-btn');
+        const downloadBtn = document.getElementById('download-btn');
+        const statusDiv = document.getElementById('status');
+        const statsSpan = document.getElementById('stats');
+        const compatBanner = document.getElementById('compat-banner');
+        const compatMessage = document.getElementById('compat-message');
+
+        let fileCount = 0;
+
+        // Environment Check Verification Layer
+        function verifyEnvironment() {
+            const hasAPI = 'showDirectoryPicker' in window;
+            const isLocalFile = window.location.protocol === 'file:';
+
+            if (!hasAPI || isLocalFile) {
+                compatBanner.style.display = 'block';
+                selectDirBtn.disabled = true;
+                
+                if (isLocalFile) {
+                    compatMessage.innerHTML = 'Security restrictions prohibit execution via the <code>file://</code> protocol.';
+                    statusDiv.textContent = 'Status: Serve via HTTP localhost to enable.';
+                } else {
+                    compatMessage.innerHTML = 'Your active browser configuration lacks <code>showDirectoryPicker</code> support.';
+                    statusDiv.textContent = 'Status: Incompatible runtime architecture.';
+                }
+                return false;
+            }
+            return true;
+        }
+
+        // Initialize Guard
+        verifyEnvironment();
+
+        selectDirBtn.addEventListener('click', async () => {
+            try {
+                const dirHandle = await window.showDirectoryPicker();
+                statusDiv.textContent = `Processing directory: ${dirHandle.name}...`;
+                fileCount = 0;
+
+                const allowedExtensions = extensionsInput.value
+                    .trim()
+                    .split(/\s+/)
+                    .map(ext => ext.replace(/^\./, '').toLowerCase());
+
+                // 1. Structural visual tree traversal map
+                const treeLines = [dirHandle.name];
+                await buildTreeStructure(dirHandle, "", treeLines);
+                
+                let finalOutput = `<begin tree>\n${treeLines.join('\n')}\n<end tree>\n\n`;
+
+                // 2. Data aggregation pass
+                const bodyParts = [];
+                await aggregateContents(dirHandle, dirHandle.name, allowedExtensions, bodyParts);
+                
+                finalOutput += bodyParts.join('\n');
+                outputText.value = finalOutput;
+                
+                statusDiv.textContent = `Successfully processed directory: ${dirHandle.name}`;
+                const sizeKb = (new Blob([finalOutput]).size / 1024).toFixed(1);
+                statsSpan.textContent = `Files: ${fileCount} // Size: ${sizeKb} KB`;
+                
+                copyBtn.disabled = false;
+                downloadBtn.disabled = false;
+            } catch (err) {
+                if (err.name !== 'AbortError') {
+                    statusDiv.textContent = `Error: ${err.message}`;
+                    console.error(err);
+                } else {
+                    statusDiv.textContent = 'Directory targeting canceled by operator.';
+                }
+            }
+        });
+
+        async function buildTreeStructure(dirHandle, prefix, lines) {
+            const entries = [];
+            for await (const entry of dirHandle.values()) {
+                entries.push(entry);
+            }
+            
+            entries.sort((a, b) => {
+                if (a.kind !== b.kind) return a.kind === 'directory' ? -1 : 1;
+                return a.name.localeCompare(b.name);
+            });
+
+            for (let i = 0; i < entries.length; i++) {
+                const entry = entries[i];
+                const isLast = i === entries.length - 1;
+                const pointer = isLast ? '└── ' : '├── ';
+                
+                lines.push(`${prefix}${pointer}${entry.name}`);
+
+                if (entry.kind === 'directory') {
+                    const newPrefix = prefix + (isLast ? '    ' : '│   ');
+                    await buildTreeStructure(entry, newPrefix, lines);
+                }
+            }
+        }
+
+        async function aggregateContents(dirHandle, currentPath, allowedExtensions, bodyParts) {
+            for await (const entry of dirHandle.values()) {
+                const entryRelativePath = `${currentPath}/${entry.name}`;
+                
+                if (entry.kind === 'directory') {
+                    await aggregateContents(entry, entryRelativePath, allowedExtensions, bodyParts);
+                } else if (entry.kind === 'file') {
+                    const ext = entry.name.includes('.') ? entry.name.split('.').pop().toLowerCase() : '';
+                    
+                    if (allowedExtensions.includes(ext)) {
+                        try {
+                            const file = await entry.getFile();
+                            const content = await file.text();
+                            const lang = getLanguageName(ext);
+                            
+                            const fileBlock = `<file path="${entryRelativePath}" language="${lang}">\n${content}\n</file>\n`;
+                            bodyParts.push(fileBlock);
+                            fileCount++;
+                        } catch (e) {
+                            console.warn(`Could not read file text at ${entryRelativePath}:`, e);
+                        }
+                    }
+                }
+            }
+        }
+
+        copyBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(outputText.value);
+            const originalText = copyBtn.textContent;
+            copyBtn.textContent = 'Copied!';
+            setTimeout(() => copyBtn.textContent = originalText, 1500);
+        });
+
+        downloadBtn.addEventListener('click', () => {
+            const blob = new Blob([outputText.value], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'context.txt';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+    </script>
+</body>
+</html>
