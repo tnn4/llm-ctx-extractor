@@ -10,7 +10,7 @@
    <body>
       <header>
          <h1>ctx // Web Context Extractor</h1>
-         <div id="status">System initialized. awaiting directory targeting...</div>
+         <div id="status">System initialized. Awaiting directory targeting... (Files larger than 1 MB will be ignored)</div>
       </header>
       <!-- Active Warning Banner -->
       <div id="compat-banner" class="compatibility-banner">
@@ -28,7 +28,7 @@
          </label>
          <label>
          Target Extensions (space separated)
-         <input type="text" id="extensions-input" value="gd rs lua cs toml json" placeholder="e.g. gd rs lua">
+         <input type="text" id="extensions-input" value="html css js ts toml json" placeholder="e.g. html js toml json gd rs lua (Use 'all' for all extensions)">
          </label>
          <div style="margin-left: auto; display: flex; gap: 10px;">
             <button id="copy-btn" class="secondary-btn" disabled>Copy to Clipboard</button>

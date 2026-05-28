@@ -66,12 +66,32 @@ selectDirBtn.addEventListener('click', async () => {
       statusDiv.textContent = `Processing directory: ${dirHandle.name}...`;
       fileCount = 0;
 
-      const allowedExtensions = extensionsInput.value
-         .trim()
-         .split(/\s+/)
-         .map(ext => ext.replace(/^\./, '').toLowerCase());
+      let rawInputValue = extensionsInput.value.trim().toLowerCase();
+      let allowedExtensions = [];
+      let isAllMode = rawInputValue === 'all' || rawInputValue === '*';
 
-      // 1. Structural visual tree traversal map (With Recursive Upstream Pruning)
+      if (isAllMode) {
+         statusDiv.textContent = `Analyzing directory structure to discover valid source extensions...`;
+         // Run a lightning-fast pre-flight pass to gather available, targetable extensions
+         const discoveredExtensions = new Set();
+         await harvestExtensions(dirHandle, discoveredExtensions);
+         allowedExtensions = Array.from(discoveredExtensions);
+         
+         // Visual feedback to the operator showing what the scanner detected
+         statusDiv.textContent = `Discovered ${allowedExtensions.length} language targets: [${allowedExtensions.join(', ')}]`;
+      } else {
+         allowedExtensions = rawInputValue
+            .split(/\s+/)
+            .map(ext => ext.replace(/^\./, ''));
+      }
+
+      // If no valid extensions found, stop processing immediately
+      if (allowedExtensions.length === 0) {
+         statusDiv.textContent = `Aborted: No parseable extensions identified in target directory.`;
+         return;
+      }
+
+      // 1. Structural visual tree traversal map
       const treeLines = [dirHandle.name];
       await buildTreeStructure(dirHandle, "", treeLines, allowedExtensions);
 
@@ -99,6 +119,30 @@ selectDirBtn.addEventListener('click', async () => {
       }
    }
 });
+
+/**
+ * Simple Discovery Layer: Scans directory paths to map valid file schemas.
+ * Leverages existing getLanguageName mapping dictionary to reject non-text binary blobs.
+ */
+async function harvestExtensions(dirHandle, extensionSet) {
+   for await (const entry of dirHandle.values()) {
+      if (entry.name === '.git' || entry.name === 'node_modules' || entry.name === 'dist') continue;
+
+      if (entry.kind === 'directory') {
+         await harvestExtensions(entry, extensionSet);
+      } else if (entry.kind === 'file') {
+         if (entry.name.includes('.')) {
+            const ext = entry.name.split('.').pop().toLowerCase();
+            
+            // SECURITY CHECK: Guard context window from processing unknown binary files
+            // Only capture extensions explicitly listed in your getLanguageName dictionary
+            if (getLanguageName(ext) !== 'text') {
+               extensionSet.add(ext);
+            }
+         }
+      }
+   }
+}
 
 /**
  * Upgraded Tree Traversal: Recursively evaluates directory contents.
@@ -161,6 +205,7 @@ function stripToSignatures(content, ext) {
    if (normalizedExt === 'css') return extractCssStructure(lines);
    if (['html', 'xml', 'tscn', 'tres', 'svg'].includes(normalizedExt)) return extractMarkupSkeleton(lines);
    if (['gd', 'py', 'yaml', 'yml'].includes(normalizedExt)) return extractIndentedSignatures(lines);
+   if (normalizedExt === 'sql') return extractSqlSchema(lines);
 
    return extractBracedSignatures(lines);
 }
@@ -265,7 +310,17 @@ function extractJsonSkeleton(lines) {
    let output = [];
 
    for (let line of lines) {
-      let trimmed = line.trim();
+        let line = lines[i];  
+        let trimmed = line.trim();
+      
+      // [NEW] Payload Heuristic: If we hit 100 structural lines, truncate the rest.
+      if (output.length > 100) {
+          output.push("  // ... [Massive JSON data payload truncated to preserve context schema]");
+          // Append the last 3 lines to ensure the braces/brackets close cleanly
+          output.push(...lines.slice(-3));
+          break; 
+      }
+
       if (trimmed === '{' || trimmed === '}' || trimmed === '[' || trimmed === ']' || trimmed === '},' || trimmed === '],') {
          output.push(line);
          continue;
@@ -310,6 +365,29 @@ function extractCssStructure(lines) {
    return output.length > 0 ? output.join('\n') : "/* ... [CSS ruleset definitions omitted] */";
 }
 
+/**
+ * Strategy: Database Schema Extraction
+ * Captures table scaffolding but ignores massive data insertions.
+ */
+function extractSqlSchema(lines) {
+    let output = [];
+    const schemaPattern = /^(CREATE|ALTER|DROP|TABLE|VIEW|INDEX|PRIMARY KEY|FOREIGN KEY|CONSTRAINT)/i;
+    const ignorePattern = /^(INSERT INTO|COPY|VALUES)/i;
+
+    for (let line of lines) {
+        let trimmed = line.trim();
+        
+        // Immediately bypass data dumps
+        if (ignorePattern.test(trimmed)) continue; 
+
+        // Keep structural definitions, braces, and column declarations (which usually end in commas)
+        if (schemaPattern.test(trimmed) || trimmed === '(' || trimmed === ');' || trimmed.endsWith(',')) {
+            output.push(line);
+        }
+    }
+    return output.length > 0 ? output.join('\n') : "-- ... [SQL Schema omitted]";
+}
+
 async function aggregateContents(dirHandle, currentPath, allowedExtensions, bodyParts) {
    for await (const entry of dirHandle.values()) {
       if (entry.name === '.git') continue; 
@@ -318,7 +396,24 @@ async function aggregateContents(dirHandle, currentPath, allowedExtensions, body
       if (entry.kind === 'directory') {
          await aggregateContents(entry, entryRelativePath, allowedExtensions, bodyParts);
       } else if (entry.kind === 'file') {
-         const ext = entry.name.includes('.') ? entry.name.split('.').pop().toLowerCase() : '';
+         
+        // Inside aggregateContents, right after getting the file reference:
+        const file = await entry.getFile();
+
+        // [NEW] Hard-cap files larger than 1MB (1,048,576 bytes)
+        if (file.size > 1048576) {
+            const sizeMb = (file.size / 1024 / 1024).toFixed(2);
+            const fileBlock = `<file path="${entryRelativePath}" language="text">\n` +
+                      `// [System Alert: File exceeds 1MB threshold (${sizeMb} MB). Excluded to prevent context flood and memory locking.]\n` +
+                      `</file>\n`;
+            bodyParts.push(fileBlock);
+            fileCount++;
+            continue; // Skip processing this massive file entirely
+}
+
+let content = await file.text();
+        
+        const ext = entry.name.includes('.') ? entry.name.split('.').pop().toLowerCase() : '';
 
          if (allowedExtensions.includes(ext)) {
             try {
