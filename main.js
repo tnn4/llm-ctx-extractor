@@ -254,6 +254,16 @@ function extractIndentedSignatures(lines) {
 }
 
 /**
+ * Enhanced Fallback: Captures File Boundaries (First 5 + Last 5 lines)
+ */
+function getSmarterFallback(lines) {
+    if (lines.length <= 10) return lines.join('\n');
+    return lines.slice(0, 5).join('\n') + 
+           "\n// ... [middle omitted]\n" + 
+           lines.slice(-5).join('\n');
+}
+
+/**
  * Strategy: Braced Code Structural Signatures (Enhanced)
  * Preserves imports, docstrings, and signatures.
  */
