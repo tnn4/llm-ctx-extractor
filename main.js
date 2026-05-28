@@ -237,49 +237,40 @@ function extractMarkupSkeleton(lines) {
 }
 
 /**
- * Strategy: Indentation-Preserving Signatures
- * Retains relative whitespace scaffolding for block-scoped languages (Python, GDScript, YAML).
+ * Strategy: Indentation-Preserving Signatures (Enhanced)
  */
 function extractIndentedSignatures(lines) {
-   let output = [];
-   // Targets functions, classes, signals, or top-level yaml dictionary definitions
-   const indentSigPattern = /^(extends|classname|class|def|fn|signal|export|onready|var|enum)\s+|^\s*[-_a-zA-Z0-9]+\s*:/i;
+    let output = [];
+    const sigPattern = /^(extends|classname|class|def|fn|signal|export|onready|var|enum|import|from)/i;
+    const commentPattern = /^(#|"""|''')/;
 
-   for (let line of lines) {
-      let trimmed = line.trim();
-
-      if (indentSigPattern.test(trimmed) || trimmed === "") {
-         output.push(line);
-      }
-   }
-
-   if (output.length > 0) {
-      output.push("# ... [implementation blocks omitted]");
-      return output.join('\n');
-   }
-   return lines.slice(0, 10).join('\n') + "\n# ... [body stripped]";
+    for (let line of lines) {
+        let trimmed = line.trim();
+        if (sigPattern.test(trimmed) || commentPattern.test(trimmed) || trimmed === "") {
+            output.push(line);
+        }
+    }
+    return output.length > 0 ? output.join('\n') : getSmarterFallback(lines);
 }
 
 /**
- * Strategy: Braced Code Structural Signatures (Original Fallback)
+ * Strategy: Braced Code Structural Signatures (Enhanced)
+ * Preserves imports, docstrings, and signatures.
  */
 function extractBracedSignatures(lines) {
-   let output = [];
-   const sigPattern = /^(public|private|protected|static|fn|def|class|interface|struct|type|func|namespace|using|import|package)/i;
+    let output = [];
+    // Whitelist: Imports, Exports, Docstrings, and standard signatures
+    const keyPattern = /^(import|export|using|package|require|public|private|protected|static|fn|def|class|interface|struct|type|func)/i;
+    const commentPattern = /^(\/\*\*|\/\/\/|"""|@)/;
 
-   for (let line of lines) {
-      let trimmed = line.trim();
-
-      if (sigPattern.test(trimmed) || trimmed === '{' || trimmed === '}' || trimmed === "" || trimmed.endsWith(';')) {
-         output.push(line);
-      }
-   }
-
-   if (output.length > 0) {
-      output.push("// ... [implementation details stripped]");
-      return output.join('\n');
-   }
-   return lines.slice(0, 10).join('\n') + "\n// ... [body stripped]";
+    for (let line of lines) {
+        let trimmed = line.trim();
+        if (keyPattern.test(trimmed) || commentPattern.test(trimmed) || 
+            trimmed === '{' || trimmed === '}' || trimmed.endsWith(';')) {
+            output.push(line);
+        }
+    }
+    return output.length > 0 ? output.join('\n') : getSmarterFallback(lines);
 }
 
 // Keep your existing extractJsonSkeleton and extractCssStructure strategies unchanged below...
