@@ -424,11 +424,38 @@ copyBtn.addEventListener('click', () => {
    setTimeout(() => copyBtn.textContent = originalText, 1500);
 });
 
-downloadBtn.addEventListener('click', () => {
+downloadBtn.addEventListener('click', async () => {
    // Get the custom filename from the input, default to 'context.txt' if empty
    const filenameInput = document.getElementById('filename-input');
    const fileName = filenameInput.value.trim() || 'context.txt';
 
+   
+   try {
+      // 1. Open file save picker
+      const handle = await window.showSaveFilePicker({
+         suggestedName: fileName,
+         type: [{
+            description: 'Text file',
+            accept: { 'text/plain': ['.txt']}
+         }],
+      });
+
+      // 2. Create a writable stream and write content
+      const writable = await handle.createWritable();
+
+      // 3. Write the output text to the file
+      await writable.write(outputText.value);
+
+      // 4. Close the file and save
+      await writable.close();
+   } catch (err) {
+      // Handle cancel or errors
+      if (err.name !== 'AbortError') {
+         console.error('File save failed:', err);
+      }
+   }
+
+   /*
    const blob = new Blob([outputText.value], { type: 'text/plain' });
    const url = URL.createObjectURL(blob);
    const a = document.createElement('a');
@@ -440,4 +467,5 @@ downloadBtn.addEventListener('click', () => {
    a.click();
    document.body.removeChild(a);
    URL.revokeObjectURL(url);
+   */
 });
