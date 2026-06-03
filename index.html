@@ -32,6 +32,14 @@
          Target Extensions (space separated)
          <input type="text" id="extensions-input" value="html css js ts toml json" placeholder="e.g. html js toml json gd rs lua">
          </label>
+         <!-- Ignore patterns: manual entry + optional .gitignore load -->
+         <label>
+            Ignore Patterns (space or comma separated)
+            <div style="display: flex; gap: 6px; align-items: center;">
+               <input type="text" id="ignore-input" value="node_modules .git dist" placeholder="e.g. node_modules dist .git build">
+               <button id="load-gitignore-btn" class="secondary-btn" title="Pick and parse a .gitignore file">Load .gitignore</button>
+            </div>
+         </label>
          <div style="margin-left: auto; display: flex; gap: 10px;">
             <button id="copy-btn" class="secondary-btn" disabled>Copy to Clipboard</button>
             <label>
@@ -39,7 +47,6 @@
                 <input type="text" id="filename-input" value="context.txt" placeholder="context.txt">
             </label>
             <button id="download-btn">Download</button>
-            
          </div>
       </div>
       <div class="output-container">
