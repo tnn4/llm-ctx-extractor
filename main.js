@@ -263,6 +263,96 @@ selectDirBtn.addEventListener('click', async () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Select Files Function
+// ─────────────────────────────────────────────────────────────────────────────
+
+
+const selectFilesBtn = document.getElementById('select-files-btn');
+
+// Keep selectFilesBtn operational if environment verification passes
+if (verifyEnvironment()) {
+   selectFilesBtn.disabled = false;
+} else {
+   selectFilesBtn.disabled = true;
+}
+
+selectFilesBtn.addEventListener('click', async () => {
+   try {
+      // Open the browser picker for individual files (allows multiple selection)
+      const fileHandles = await window.showOpenFilePicker({ multiple: true });
+      statusDiv.textContent = `Processing standalone files...`;
+      fileCount = 0;
+
+      // 1. Generate a flat mock tree structure for the standalone files
+      let finalOutput = `<begin tree>\n[Standalone Files]\n`;
+      for (let i = 0; i < fileHandles.length; i++) {
+         const isLast = i === fileHandles.length - 1;
+         const pointer = isLast ? '└── ' : '├── ';
+         finalOutput += `└── ${fileHandles[i].name}\n`;
+      }
+      finalOutput += `<end tree>\n\n`;
+
+      // 2. Process and aggregate the file contents directly
+      const bodyParts = [];
+      
+      for (const handle of fileHandles) {
+         try {
+            const file = await handle.getFile();
+            const ext = file.name.includes('.') ? file.name.split('.').pop().toLowerCase() : '';
+            let content = await file.text();
+            const lang = getLanguageName(ext);
+            
+            const originalSize = (file.size / 1024).toFixed(2);
+            const originalLines = content.split('\n').length;
+
+            // Apply size guard safety thresholds
+            if (file.size > 1048576) {
+               const sizeMb = (file.size / 1024 / 1024).toFixed(2);
+               bodyParts.push(`<file path="${file.name}" language="text">\n` +
+                              `// [System Alert: File exceeds 1MB threshold (${sizeMb} MB). Excluded to prevent context flood.]\n` +
+                              `</file>\n`);
+               fileCount++;
+               continue;
+            }
+
+            // Route through your existing signature-stripping strategies if active
+            if (document.getElementById('mode-toggle').checked) {
+               content = stripToSignatures(content, ext);
+            }
+
+            const fileBlock = `<file path="${file.name}" language="${lang}">\n` +
+                              `// Metrics: Standalone File | Extracted from ${originalSize} KB source | Original Line Count: ${originalLines}\n` +
+                              `${content}\n` +
+                              `</file>\n`;
+                              
+            bodyParts.push(fileBlock);
+            fileCount++;
+         } catch (fileErr) {
+            console.warn(`Could not read standalone file text for ${handle.name}:`, fileErr);
+         }
+      }
+
+      finalOutput += bodyParts.join('\n');
+      outputText.value = finalOutput;
+
+      // Update UI metrics display
+      statusDiv.textContent = `Successfully processed ${fileCount} standalone files.`;
+      const sizeKb = (new Blob([finalOutput]).size / 1024).toFixed(1);
+      statsSpan.textContent = `Files: ${fileCount} // Size: ${sizeKb} KB`;
+
+      copyBtn.disabled = false;
+      downloadBtn.disabled = false;
+   } catch (err) {
+      if (err.name !== 'AbortError') {
+         statusDiv.textContent = `Error: ${err.message}`;
+         console.error(err);
+      } else {
+         statusDiv.textContent = 'File targeting canceled by operator.';
+      }
+   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Discovery Layer: Maps valid schema targets via fast folder evaluation pass.
 // Now accepts ignoreList to skip excluded directories/files.
 // ─────────────────────────────────────────────────────────────────────────────
